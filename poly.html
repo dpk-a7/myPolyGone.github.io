@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Polygon Annotation Tool with Image Upload</title>
+    <style>
+        canvas {
+            border: 1px solid black;
+        }
+        .controls {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Polygon Annotation Tool</h2>
+
+<!-- Input to upload image -->
+<input type="file" id="imageLoader" name="imageLoader" accept="image/*"/>
+<br>
+<canvas id="annotationCanvas" width="600" height="400"></canvas>
+
+<div class="controls">
+    <button id="newPolygon">New Polygon</button>
+    <button id="setPolygon">Set Polygon</button>
+    <button id="clearPolygon">Clear Polygon</button>
+    <button id="savePolygons">Save Polygons</button>
+</div>
+
+<!-- Output Area -->
+<div>
+    <h3>Saved Polygons</h3>
+    <textarea id="polygonData" rows="10" cols="50"></textarea>
+</div>
+
+<script>
+    const canvas = document.getElementById('annotationCanvas');
+    const ctx = canvas.getContext('2d');
+    const imageLoader = document.getElementById('imageLoader');
+
+    let polygons = [];
+    let currentPolygon = [];
+    let isDrawing = true;
+    let draggingPoint = null;
+    let image = null;
+
+    function drawCircle(x, y, radius = 5, color = 'red') {
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    function drawPolygon(polygon) {
+        if (polygon.length < 2) return;
+        ctx.beginPath();
+        ctx.moveTo(polygon[0].x, polygon[0].y);
+        for (let i = 1; i < polygon.length; i++) {
+            ctx.lineTo(polygon[i].x, polygon[i].y);
+        }
+        ctx.closePath();
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(200, 0, 0, 0.5)';
+        ctx.fill();
+
+        // Draw circles around vertices
+        polygon.forEach(point => drawCircle(point.x, point.y));
+    }
+
+    function render() {
+        // Clear the canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw the uploaded image if exists
+        if (image) {
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        }
+
+        // Redraw all polygons
+        polygons.forEach(drawPolygon);
+
+        // Draw the current polygon in progress
+        drawPolygon(currentPolygon);
+    }
+
+    function getMousePos(event) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top
+        };
+    }
+
+    function getNearestVertex(mousePos, threshold = 10) {
+        for (let i = 0; i < currentPolygon.length; i++) {
+            const dx = currentPolygon[i].x - mousePos.x;
+            const dy = currentPolygon[i].y - mousePos.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < threshold) {
+                return i;
+            }
+        }
+        return null;
+    }
+
+    canvas.addEventListener('mousedown', function(event) {
+        const mousePos = getMousePos(event);
+
+        if (isDrawing) {
+            // Handle right-click to delete the nearest point
+            if (event.button === 2) {  // Right-click is detected
+                const nearestPoint = getNearestVertex(mousePos);
+                if (nearestPoint !== null) {
+                    currentPolygon.splice(nearestPoint, 1);  // Remove the nearest point
+                    render();
+                }
+            } else if (event.button === 0) {  // Left-click to add or drag points
+                // Check if the user clicked near an existing point
+                const nearestPoint = getNearestVertex(mousePos);
+                if (nearestPoint !== null) {
+                    draggingPoint = nearestPoint;
+                } else {
+                    currentPolygon.push(mousePos);
+                    render();
+                }
+            }
+        }
+    });
+
+    canvas.addEventListener('mouseup', function() {
+        draggingPoint = null;
+    });
+
+    canvas.addEventListener('mousemove', function(event) {
+        if (draggingPoint !== null && isDrawing) {
+            const mousePos = getMousePos(event);
+            currentPolygon[draggingPoint] = mousePos;
+            render();
+        }
+    });
+
+    // Disable context menu on the canvas (optional)
+    canvas.addEventListener('contextmenu', function(event) {
+        event.preventDefault();
+    });
+
+    document.getElementById('newPolygon').addEventListener('click', function() {
+        if (currentPolygon.length > 2) {
+            polygons.push([...currentPolygon]); // Copy the current polygon to the polygons array
+        }
+        currentPolygon = [];
+        render();
+    });
+
+    document.getElementById('setPolygon').addEventListener('click', function() {
+        const textarea = document.getElementById("polygonData");
+        let rawData = textarea.value.trim();
+
+        try {
+            // Clean and format the input data
+            rawData = rawData
+                .replace(/\]\s*\[/g, '],[')  // Add commas between coordinate arrays if missing
+                .replace(/\s*\]\s*\[/g, '],[')  // Fix missing commas between coordinates
+                .replace(/(\d+),(\d+)/g, '$1,$2')  // Ensure no double commas
+                .replace(/^\[\s*|\s*]$/g, '');  // Remove leading/trailing square brackets if present
+
+            // Add brackets to make it a valid JSON array
+            rawData = '[' + rawData + ']';
+
+            // Parse the cleaned string as a JSON array
+            const polygonArray = JSON.parse(rawData);
+
+            // Validate and convert the array into points
+            if (Array.isArray(polygonArray) && polygonArray.length > 2) {
+                currentPolygon = polygonArray.map(point => ({ x: point[0], y: point[1] }));
+                render();  // Render the polygon on the canvas
+            } else {
+                console.error("A valid polygon must have at least 3 points.");
+            }
+
+        } catch (error) {
+            console.error("Error parsing the polygon data:", error);
+        }
+    });
+
+
+
+    document.getElementById('clearPolygon').addEventListener('click', function() {
+        currentPolygon = [];
+        render();
+    });
+
+    document.getElementById('savePolygons').addEventListener('click', function() {
+        console.log(currentPolygon)
+        // Include the current polygon (if it's being drawn) in the saved data
+        let allPolygons = [...polygons];
+        
+        // Check if the current polygon is still being drawn and has more than 2 points
+        if (currentPolygon.length > 2) {
+            allPolygons.push([...currentPolygon]);  // Add current polygon to the list
+        }
+
+        // Format the polygon data
+        const polygonData = allPolygons.map(polygon => 
+            polygon.map(point => `[${point.x.toFixed(2)}, ${point.y.toFixed(2)}]`).join('\n')).join('\n\n');
+        
+        // Show the data in the textarea
+        document.getElementById('polygonData').value = `[${polygonData}]`;
+    });
+
+
+    // Handle image upload and display it on the canvas
+    imageLoader.addEventListener('change', function(event) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+                // Set canvas size to match image size (optional)
+                canvas.width = img.width;
+                canvas.height = img.height;
+
+                // Store the image for use in the render function
+                image = img;
+                render();
+            }
+            img.src = e.target.result;
+        }
+        reader.readAsDataURL(event.target.files[0]);
+    });
+
+    render();
+</script>
+
+</body>
+</html>
